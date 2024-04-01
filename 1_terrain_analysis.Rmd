@@ -1,0 +1,143 @@
+---
+title: "Terrain Analyses in R"
+author: "Matthew Ross"
+date: "2024-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(sf)
+library(terra)
+library(whitebox)
+library(elevatr)
+library(mapview)
+library(tidyverse)
+library(tmap)
+
+```
+
+
+## Add a watershed outlet point
+
+```{r}
+
+sheds <- tibble(site = c('South Fork','Peak'),
+                long = c(40.5475185,40.4960873),
+                lat = c(-105.6091385,-105.6275823)) %>%
+  st_as_sf(., coords = c('lat','long'), crs = 4263) %>%
+  st_transform(2163)
+
+
+mapview(sheds)
+
+st_write(sheds, 'data/pourpoints.shp')
+```
+
+
+## Get elevation data from around that area. 
+
+```{r}
+
+elev <- get_elev_raster(sheds, z = 10) %>%
+  rast(.)
+
+# Various ways to plot
+
+mapview(elev) + 
+  mapview(sheds)
+```
+
+### Save a local DEM Version
+
+```{r}
+
+writeRaster(elev, 'data/elev.tif')
+```
+
+
+
+## Get hillshade for display purposes
+
+```{r}
+wbt_hillshade(dem = "data/elev.tif",
+              output = "data/hillshade.tif",
+              azimuth = 115)
+
+hillshade <- rast('data/hillshade.tif')
+
+tm_shape(hillshade)+
+  tm_raster(style = "cont",
+            palette = "-Greys", 
+            legend.show = FALSE)+
+  tm_scale_bar()
+```
+
+
+## Hydrologically condition DEM
+
+```{r}
+wbt_breach_depressions_least_cost(
+  dem = "data/elev.tif",
+  output = "data/breached.tif",
+  dist = 9,
+  fill = TRUE)
+
+wbt_fill_depressions_wang_and_liu(
+  dem = "data/breached.tif",
+  output = "data/breachfill.tif"
+)
+```
+
+## Flow Accumulation 
+
+```{r}
+wbt_d8_flow_accumulation(input = "data/breachfill.tif",
+                         output = "data/d8fa.tif")
+
+wbt_d8_pointer(dem ='data/breachfill.tif',
+               output = 'data/d8point.tif')
+
+fa <- rast('data/d8fa.tif') %>%
+  log10(.)
+
+
+mapview(fa) + 
+  mapview(sheds)
+```
+
+
+## Extract streams with arbitrary 300 cell threshold 
+
+```{r}
+wbt_extract_streams(flow_accum = "data/d8fa.tif",
+                    output = "data/raster_streams.tif",
+                    threshold = 300)
+
+wbt_jenson_snap_pour_points(pour_pts = "data/pourpoints.shp",
+                            streams = "data/raster_streams.tif",
+                            output = "data/snappedpp.shp",
+                            snap_dist = 200)
+
+
+snap_pour <- st_read('data/snappedpp.shp')
+mapview(fa) + 
+  mapview(snap_pour)
+
+```
+
+
+## Delineate watershed
+
+```{r}
+wbt_watershed(d8_pntr = "data/d8point.tif",
+              pour_pts = "data/snappedpp.shp",
+              output = "data/south_fork.tif")
+
+sheds <- rast('data/south_fork.tif')
+
+mapview(sheds)
+
+```
+
