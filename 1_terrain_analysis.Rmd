@@ -210,7 +210,8 @@ wbt_watershed(d8_pntr = "data/d8point.tif",
               pour_pts = "data/snappedpp.shp",
               output = "data/south_fork.tif")
 
-south_shed <- rast('data/south_fork.tif')
+south_shed <- rast('data/south_fork.tif') %>%
+  trim()
 
 mapview(south_shed) + 
 mapview(sheds)
@@ -243,7 +244,7 @@ wbt_wetness_index(sca = 'data/d8fa.tif',
 twi <- rast('data/twi.tif')
 
 mapview(twi)
-
+mapview(south_shed)
 
 ```
 
@@ -253,10 +254,10 @@ mapview(twi)
 ```{r}
 # Crop TWI to south_shed area
 
-twi_south <- crop(twi, south_shed) 
+twi_south <- terra::crop(twi, south_shed) 
 
 
-twi_south_mask <- mask(twi, south_shed)
+twi_south_mask <- terra::mask(twi_south, south_shed)
 
 
 mapview(twi_south_mask)
