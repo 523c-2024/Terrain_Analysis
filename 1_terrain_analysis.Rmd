@@ -16,23 +16,60 @@ library(mapview)
 library(tidyverse)
 library(tmap)
 
+
+# Run first time you install whitebox
+# whitebox::install_whitebox
 ```
 
+
+# Goals
+
+
+## Terrain Analysis Toolkit
+
+The goal of this lab is to familiarize you with a very powerful set of tools
+that enable you to do terrain analyses. These are primarily the packages `elevatr` for
+downloading DEM data, `whitebox` for conducting watershed and terrain analyses.
+These packages also rely on other geospatial packages (`sf`, `terra`) and visualizing
+the data relies on `mapview` and `tmap`. 
+
+
+## Terrain Analysis Ideas
+
+So the above tools can help you analyze a digital elevation model, but why would
+you want to do this? Well, terrain analysis can do many things in water resource
+planning and analysis. For example, if we wanted to find parts of the landscape
+where we think wetlands could exist, we might want to use [Topographic Wetness 
+Index](https://www.whiteboxgeo.com/manual/wbt_book/available_tools/geomorphometric_analysis.html#wetnessindex) 
+to identify these areas where the topography lends itself to wet landscapes, which
+are areas of relatively high flow accumulation coupled with a bowl-like curvature.
+
+To learn these tools and ideas we will work through a watershed delineation example
+in the South Fork of the Poudre River, and then you will conduct your own analysis. 
+
+
+# South Fork Example
 
 ## Add a watershed outlet point
 
 ```{r}
 
-sheds <- tibble(site = c('South Fork','Peak'),
-                long = c(40.5475185,40.4960873),
-                lat = c(-105.6091385,-105.6275823)) %>%
+#Create a point near the stream using lat, long. 
+sheds <- tibble(site = c('South Fork'),
+                long = c(40.5475185),
+                lat = c(-105.6091385)) %>%
   st_as_sf(., coords = c('lat','long'), crs = 4263) %>%
   st_transform(2163)
 
-
+#Visualize the points
 mapview(sheds)
 
-st_write(sheds, 'data/pourpoints.shp')
+#Little code snippet to make the data folder if you don't have it. 
+if(!file.exists('data')){
+  dir.create('data')
+}
+
+st_write(sheds, 'data/pourpoints.shp', append = F)
 ```
 
 
@@ -40,6 +77,7 @@ st_write(sheds, 'data/pourpoints.shp')
 
 ```{r}
 
+# Use elevatr to download data and convert to terra object
 elev <- get_elev_raster(sheds, z = 10) %>%
   rast(.)
 
@@ -52,8 +90,8 @@ mapview(elev) +
 ### Save a local DEM Version
 
 ```{r}
-
-writeRaster(elev, 'data/elev.tif')
+#Save local version for whitebox to use
+writeRaster(elev, 'data/elev.tif', overwrite = T)
 ```
 
 
@@ -61,12 +99,16 @@ writeRaster(elev, 'data/elev.tif')
 ## Get hillshade for display purposes
 
 ```{r}
+
+#Get a shillshade map from wbt
 wbt_hillshade(dem = "data/elev.tif",
               output = "data/hillshade.tif",
               azimuth = 115)
 
+#Read in the hillshade
 hillshade <- rast('data/hillshade.tif')
 
+#Visualize
 tm_shape(hillshade)+
   tm_raster(style = "cont",
             palette = "-Greys", 
@@ -77,13 +119,23 @@ tm_shape(hillshade)+
 
 ## Hydrologically condition DEM
 
+JP Gannon does a great job on his [hydroinformatics website](https://vt-hydroinformatics.github.io/Quarto_Book/14-Geospatial-Raster-Hydro.html) explaining why we need to hydrologically condition a DEM before we can conduct
+watershed analyses. Basically, DEMs aren't perfect and they can have artifacts 
+in them that make it so that water doesn't properly flow downhill. To force water
+to move the way we think it should through the landscape we can "condition" these
+DEMs using the functions below. 
+
 ```{r}
+
+# Breach depressions (force water to move through ponds/lakes/etc...)
 wbt_breach_depressions_least_cost(
   dem = "data/elev.tif",
   output = "data/breached.tif",
   dist = 9,
   fill = TRUE)
 
+
+# Fill any remaining depressions
 wbt_fill_depressions_wang_and_liu(
   dem = "data/breached.tif",
   output = "data/breachfill.tif"
@@ -92,17 +144,25 @@ wbt_fill_depressions_wang_and_liu(
 
 ## Flow Accumulation 
 
+Flow accumulation is the key function we use to estimate how much watershed area
+is draining to a specific point anywhere in the river network. Here we use the D8
+flow algorithm, which makes it so 100% of the water is routed to nearby cells. 
+ESRI has a nice article visualizing what this algorithm is [doing](https://pro.arcgis.com/en/pro-app/latest/tool-reference/raster-analysis/flow-direction.htm)
+
 ```{r}
+
+#Get flow accumulation
 wbt_d8_flow_accumulation(input = "data/breachfill.tif",
                          output = "data/d8fa.tif")
-
+#Get flow direction
 wbt_d8_pointer(dem ='data/breachfill.tif',
                output = 'data/d8point.tif')
 
+# read in the data
 fa <- rast('data/d8fa.tif') %>%
   log10(.)
 
-
+#visualize
 mapview(fa) + 
   mapview(sheds)
 ```
@@ -110,17 +170,28 @@ mapview(fa) +
 
 ## Extract streams with arbitrary 300 cell threshold 
 
+In order to make sure that our watershed outlet point, which we arbitrarily and
+manually extracted lats and longs for, we need to first extract a stream network.
+We are picking a 300-cell flow accumulation threshold for our 'stream initiation.' 
+Because our starting raster is a ~58X58m cell size 300 cells roughly equals 1 km2.
+This means, we are saying that once a stream has more than 1 km2 of watershed area draining
+to that point in the stream, we think that it will have a functioning stream channel.
+You can conduct entire studies to get this threshold right, so this is arbitrary here. 
+
 ```{r}
+
+#Extract streams at 1km2 
 wbt_extract_streams(flow_accum = "data/d8fa.tif",
                     output = "data/raster_streams.tif",
                     threshold = 300)
 
+#Snap our watershed flowliens to this point. 
 wbt_jenson_snap_pour_points(pour_pts = "data/pourpoints.shp",
                             streams = "data/raster_streams.tif",
                             output = "data/snappedpp.shp",
                             snap_dist = 200)
 
-
+# Read in and check the snap. 
 snap_pour <- st_read('data/snappedpp.shp')
 mapview(fa) + 
   mapview(snap_pour)
@@ -130,14 +201,90 @@ mapview(fa) +
 
 ## Delineate watershed
 
+
+Finally after all that! We can delineate our watershed
+
+
 ```{r}
 wbt_watershed(d8_pntr = "data/d8point.tif",
               pour_pts = "data/snappedpp.shp",
               output = "data/south_fork.tif")
 
-sheds <- rast('data/south_fork.tif')
+south_shed <- rast('data/south_fork.tif')
 
+mapview(south_shed) + 
 mapview(sheds)
+
+```
+
+## Extract a terrain metric about this watershed
+
+### Generate terrain metric
+
+Delineating a watershed allows us to now get watershed terrain metrics for that 
+watershed. Whitebox tools has dozens of terrain tools you can use
+[See More in the Geomorph Section](https://www.whiteboxgeo.com/manual/wbt_book/intro.html).
+Here we will generate and extract one critical variable. Topographic Wetness,
+which indicates areas in a watershed (or a watershed average) wetness. High values
+indicate areas that can be marshy/wetlandy and generally wet. Low values (like ridge tops) will
+be drier parts of the landscape. 
+
+```{r}
+#First we need slope
+wbt_slope(dem = 'data/elev.tif',
+          output = 'data/slope.tif',
+          units = 'degrees')
+
+# Now we can generate twi
+wbt_wetness_index(sca = 'data/d8fa.tif',
+                  slope = 'data/slope.tif',
+                  output = 'data/twi.tif')
+
+twi <- rast('data/twi.tif')
+
+mapview(twi)
+
+
+```
+
+### Crop to watershed and extract average value
+
+
+```{r}
+# Crop TWI to south_shed area
+
+twi_south <- crop(twi, south_shed) 
+
+
+twi_south_mask <- mask(twi, south_shed)
+
+
+mapview(twi_south_mask)
+
+
+global(twi_south_mask, fun = 'mean', na.rm = T)
+```
+
+
+
+# Assignment
+
+
+## Q1 Generate your own watershed
+
+Using the above code as a starter, generate your own watershed. Try to only
+pick a watershed that is not too large in size (~ < 1000km2). Remember
+you may need to mess around with the Z level for get_elev_raster(). 
+
+
+```{r}
+
+```
+
+
+## Generate, visualize, and extract two additional terrain metrics (not TWI)
+
+```{r}
 
 ```
 
