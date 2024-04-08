@@ -1,0 +1,77 @@
+---
+title: "Rayshader_demo"
+author: "Erika Lee"
+date: "2024-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rayshader)
+#this package creates 3D plots
+library(tidyverse)
+library(terra)
+library(sf)
+library(elevatr)
+```
+
+```{r}
+#read in watershed outline
+south_fork <- rast('data/south_fork.tif') %>%
+  trim()
+
+fine_elev <- get_elev_raster(south_fork, z= 13) %>%
+  #turn into a terra raster
+  rast(.)
+
+south_elev_crop <- crop(fine_elev, south_fork)
+#need to get south_fork raster to a finer scalem so reproject south_fork into a small raster using resample
+south_resamp <- resample(south_fork, south_crop)
+
+south_mask <- mask(south_elev_crop, south_resamp)
+
+plot(south_mask)
+```
+
+```{r}
+#use rayshader directly to build an interactive 3D
+
+##convert raster to matrix
+smat = raster_to_matrix(south_mask)
+##don't want dimensions to be much bigger than 800x800"... want a courser raster if it's a larger study area
+
+smat %>%
+  #sphere_shade calculates the shade of the landscape
+  sphere_shade(texture = "desert") %>%
+  #add_water looks for parts of landscape that are flat and adds water there
+  add_water(detect_water(smat), color = "desert") %>%
+  #ray_shade this is a custom function that calculates shadows - z-scale exagerates the vertical relief to create shades
+  add_shadow(ray_shade(smat, zscale = 3), 0.3) %>%
+  #ambient_shade just makes the shade look nicer
+  add_shadow(ambient_shade(smat), 0) %>%
+  plot_3d(smat, zscale = 6, fov = 0, theta = 45, 
+          zoom = 0.75, phi = 45, windowsize = c(1000, 800))
+##can use this 3D visualization in a presentation if you make presentations in R, and it is zoomable
+##make zscale smaller exagerates the elevation levels... makes it look more extreme
+
+##can drape something like a total wetness index OVER this 3D terrain, to show you important components of terrain analysis in a 3D version. Can also drop points/flags, etc
+```
+
+Website with information/code from above is [HERE](https://github.com/tylermorganwall/rayshader).
+
+Creati**ng this with my own watershed**
+
+```{r}
+library(gpx)
+#importing transitional_burned area as a shapefile - gpx files ARE shapefiles
+st_read('data/Trans_burned_region.gpx')
+
+##next steps not working really... 
+
+trans_burned_sf <- s_Spatial('data/Trans_burned_region.gpx')
+
+trans_burned <- rast('data/Trans_burned_region.gpx') 
+```
