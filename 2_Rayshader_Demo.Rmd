@@ -1,0 +1,66 @@
+---
+title: "Rayshader Demo"
+author: "Matthew Ross"
+date: "2024-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(rayshader)
+library(tidyverse)
+library(terra)
+library(sf)
+library(elevatr)
+
+
+```
+
+
+
+# Data Prep
+
+## Read in watershed outline
+
+```{r}
+
+south_fork  <- rast('data/south_fork.tif') %>%
+  trim()
+
+
+fine_elev <- get_elev_raster(south_fork, z = 12) %>%
+  rast(.)
+
+
+south_elev_crop <- crop(fine_elev, south_fork) 
+
+
+south_resamp <- resample(south_fork, south_elev_crop)
+
+
+south_mask <- mask(south_elev_crop, south_resamp)
+
+
+plot(south_mask)
+```
+
+
+
+```{r}
+
+
+smat <- raster_to_matrix(south_mask)
+
+smat %>%
+  sphere_shade(texture = "desert") %>%
+  add_water(detect_water(smat), color = "desert") %>%
+  add_shadow(ray_shade(smat, zscale = 3), 0.5) %>%
+  add_shadow(ambient_shade(smat), 0) %>%
+  plot_3d(smat, zscale = 20, fov = 0, theta = 45, 
+          zoom = 0.75, phi = 45, windowsize = c(1000, 800))
+
+
+```
+
