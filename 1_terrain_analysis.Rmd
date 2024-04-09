@@ -257,7 +257,7 @@ mapview(twi)
 twi_south <- crop(twi, south_shed) 
 
 
-twi_south_mask <- mask(twi, south_shed)
+twi_south_mask <- mask(twi_south, south_shed)
 
 
 mapview(twi_south_mask)
