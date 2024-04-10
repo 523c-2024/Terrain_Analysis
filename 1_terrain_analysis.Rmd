@@ -21,32 +21,17 @@ library(tmap)
 # whitebox::install_whitebox
 ```
 
-
 # Goals
-
 
 ## Terrain Analysis Toolkit
 
-The goal of this lab is to familiarize you with a very powerful set of tools
-that enable you to do terrain analyses. These are primarily the packages `elevatr` for
-downloading DEM data, `whitebox` for conducting watershed and terrain analyses.
-These packages also rely on other geospatial packages (`sf`, `terra`) and visualizing
-the data relies on `mapview` and `tmap`. 
-
+The goal of this lab is to familiarize you with a very powerful set of tools that enable you to do terrain analyses. These are primarily the packages `elevatr` for downloading DEM data, `whitebox` for conducting watershed and terrain analyses. These packages also rely on other geospatial packages (`sf`, `terra`) and visualizing the data relies on `mapview` and `tmap`.
 
 ## Terrain Analysis Ideas
 
-So the above tools can help you analyze a digital elevation model, but why would
-you want to do this? Well, terrain analysis can do many things in water resource
-planning and analysis. For example, if we wanted to find parts of the landscape
-where we think wetlands could exist, we might want to use [Topographic Wetness 
-Index](https://www.whiteboxgeo.com/manual/wbt_book/available_tools/geomorphometric_analysis.html#wetnessindex) 
-to identify these areas where the topography lends itself to wet landscapes, which
-are areas of relatively high flow accumulation coupled with a bowl-like curvature.
+So the above tools can help you analyze a digital elevation model, but why would you want to do this? Well, terrain analysis can do many things in water resource planning and analysis. For example, if we wanted to find parts of the landscape where we think wetlands could exist, we might want to use [Topographic Wetness Index](https://www.whiteboxgeo.com/manual/wbt_book/available_tools/geomorphometric_analysis.html#wetnessindex) to identify these areas where the topography lends itself to wet landscapes, which are areas of relatively high flow accumulation coupled with a bowl-like curvature.
 
-To learn these tools and ideas we will work through a watershed delineation example
-in the South Fork of the Poudre River, and then you will conduct your own analysis. 
-
+To learn these tools and ideas we will work through a watershed delineation example in the South Fork of the Poudre River, and then you will conduct your own analysis.
 
 # South Fork Example
 
@@ -72,8 +57,7 @@ if(!file.exists('data')){
 st_write(sheds, 'data/pourpoints.shp', append = F)
 ```
 
-
-## Get elevation data from around that area. 
+## Get elevation data from around that area.
 
 ```{r}
 
@@ -93,8 +77,6 @@ mapview(elev) +
 #Save local version for whitebox to use
 writeRaster(elev, 'data/elev.tif', overwrite = T)
 ```
-
-
 
 ## Get hillshade for display purposes
 
@@ -116,14 +98,9 @@ tm_shape(hillshade)+
   tm_scale_bar()
 ```
 
-
 ## Hydrologically condition DEM
 
-JP Gannon does a great job on his [hydroinformatics website](https://vt-hydroinformatics.github.io/Quarto_Book/14-Geospatial-Raster-Hydro.html) explaining why we need to hydrologically condition a DEM before we can conduct
-watershed analyses. Basically, DEMs aren't perfect and they can have artifacts 
-in them that make it so that water doesn't properly flow downhill. To force water
-to move the way we think it should through the landscape we can "condition" these
-DEMs using the functions below. 
+JP Gannon does a great job on his [hydroinformatics website](https://vt-hydroinformatics.github.io/Quarto_Book/14-Geospatial-Raster-Hydro.html) explaining why we need to hydrologically condition a DEM before we can conduct watershed analyses. Basically, DEMs aren't perfect and they can have artifacts in them that make it so that water doesn't properly flow downhill. To force water to move the way we think it should through the landscape we can "condition" these DEMs using the functions below.
 
 ```{r}
 
@@ -142,12 +119,9 @@ wbt_fill_depressions_wang_and_liu(
 )
 ```
 
-## Flow Accumulation 
+## Flow Accumulation
 
-Flow accumulation is the key function we use to estimate how much watershed area
-is draining to a specific point anywhere in the river network. Here we use the D8
-flow algorithm, which makes it so 100% of the water is routed to nearby cells. 
-ESRI has a nice article visualizing what this algorithm is [doing](https://pro.arcgis.com/en/pro-app/latest/tool-reference/raster-analysis/flow-direction.htm)
+Flow accumulation is the key function we use to estimate how much watershed area is draining to a specific point anywhere in the river network. Here we use the D8 flow algorithm, which makes it so 100% of the water is routed to nearby cells. ESRI has a nice article visualizing what this algorithm is [doing](https://pro.arcgis.com/en/pro-app/latest/tool-reference/raster-analysis/flow-direction.htm)
 
 ```{r}
 
@@ -167,16 +141,9 @@ mapview(fa) +
   mapview(sheds)
 ```
 
+## Extract streams with arbitrary 300 cell threshold
 
-## Extract streams with arbitrary 300 cell threshold 
-
-In order to make sure that our watershed outlet point, which we arbitrarily and
-manually extracted lats and longs for, we need to first extract a stream network.
-We are picking a 300-cell flow accumulation threshold for our 'stream initiation.' 
-Because our starting raster is a ~58X58m cell size 300 cells roughly equals 1 km2.
-This means, we are saying that once a stream has more than 1 km2 of watershed area draining
-to that point in the stream, we think that it will have a functioning stream channel.
-You can conduct entire studies to get this threshold right, so this is arbitrary here. 
+In order to make sure that our watershed outlet point, which we arbitrarily and manually extracted lats and longs for, we need to first extract a stream network. We are picking a 300-cell flow accumulation threshold for our 'stream initiation.' Because our starting raster is a \~58X58m cell size 300 cells roughly equals 1 km2. This means, we are saying that once a stream has more than 1 km2 of watershed area draining to that point in the stream, we think that it will have a functioning stream channel. You can conduct entire studies to get this threshold right, so this is arbitrary here.
 
 ```{r}
 
@@ -198,12 +165,9 @@ mapview(fa) +
 
 ```
 
-
 ## Delineate watershed
 
-
 Finally after all that! We can delineate our watershed
-
 
 ```{r}
 wbt_watershed(d8_pntr = "data/d8point.tif",
@@ -221,13 +185,7 @@ mapview(sheds)
 
 ### Generate terrain metric
 
-Delineating a watershed allows us to now get watershed terrain metrics for that 
-watershed. Whitebox tools has dozens of terrain tools you can use
-[See More in the Geomorph Section](https://www.whiteboxgeo.com/manual/wbt_book/intro.html).
-Here we will generate and extract one critical variable. Topographic Wetness,
-which indicates areas in a watershed (or a watershed average) wetness. High values
-indicate areas that can be marshy/wetlandy and generally wet. Low values (like ridge tops) will
-be drier parts of the landscape. 
+Delineating a watershed allows us to now get watershed terrain metrics for that watershed. Whitebox tools has dozens of terrain tools you can use [See More in the Geomorph Section](https://www.whiteboxgeo.com/manual/wbt_book/intro.html). Here we will generate and extract one critical variable. Topographic Wetness, which indicates areas in a watershed (or a watershed average) wetness. High values indicate areas that can be marshy/wetlandy and generally wet. Low values (like ridge tops) will be drier parts of the landscape.
 
 ```{r}
 #First we need slope
@@ -249,7 +207,6 @@ mapview(twi)
 
 ### Crop to watershed and extract average value
 
-
 ```{r}
 # Crop TWI to south_shed area
 
@@ -265,26 +222,290 @@ mapview(twi_south_mask)
 global(twi_south_mask, fun = 'mean', na.rm = T)
 ```
 
-
-
 # Assignment
-
 
 ## Q1 Generate your own watershed
 
-Using the above code as a starter, generate your own watershed. Try to only
-pick a watershed that is not too large in size (~ < 1000km2). Remember
-you may need to mess around with the Z level for get_elev_raster(). 
-
+Using the above code as a starter, generate your own watershed. Try to only pick a watershed that is not too large in size (\~ \< 1000km2). Remember you may need to mess around with the Z level for get_elev_raster().
 
 ```{r}
 
+
+points <- tibble( site = c("West_Branch", 
+                           "North_Branch"), 
+                  lat_long = c("40.6724777,-105.8620178", 
+                               "40.74148,-105.8924542"))%>%
+  separate(lat_long, into = c("lat", "long"), sep = ",")%>%
+  sf::st_as_sf(coords = c("long","lat"), crs = 4326)%>%
+  st_transform(2163)
+  
+
+preview_dem <- function(site_name, lat_long){
+  
+  # Create a directory for the site
+  site_dir <- paste0("data/sjs/", site_name)
+  
+  #create folder for tifs
+  if(!file.exists(site_dir)){
+  dir.create(site_dir)
+  }
+  
+  #Create a pourpoint
+  points <- tibble( site = site_name, 
+                    lat_long = lat_long)%>%
+    separate(lat_long, into = c("lat", "long"), sep = ",")%>%
+    sf::st_as_sf(coords = c("long","lat"), crs = 4326)%>%
+    st_transform(2163)%>%
+  st_write(., paste0(site_dir, "/location.shp"), append = F)
+  
+  #prompt user for zoom level
+  z <- readline(prompt = "What zoom level would you like to use? (1-15)  ")
+  # download dem with elevatr and zoom level
+  dem <- points%>%
+    get_elev_raster(., z = as.numeric(z)) %>%
+    rast(.)
+  #Confirm if zoom level is appropriate
+ mapview(dem)+ mapview(points)
+
+}
+
+# this function will show you your point and the dem you are about to download based on the zoom level indicated by user
+#preview_dem("West_Branch", "40.6724777,-105.8620178")
+
+
 ```
+
+# Big function
+
+```{r}
+
+
+create_watersheds <- function(site_name, lat_long, zoom_level = 11){
+  
+    
+  # Create a directory for the site
+  site_dir <- paste0("data/sjs/", site_name)
+  #create folder for tifs
+  if(!file.exists(site_dir)){
+  dir.create(site_dir)
+  }
+
+  #read in pour point
+ points <- tibble( site = site_name, 
+                    lat_long = lat_long)%>%
+    separate(lat_long, into = c("lat", "long"), sep = ",")%>%
+    sf::st_as_sf(coords = c("long","lat"), crs = 4326)%>%
+    st_transform(2163)%>%
+  st_write(., paste0(site_dir, "/location.shp"), append = F)
+
+  # download dem with elevatr and zoom level
+  dem <- points%>%
+    get_elev_raster(., z = as.numeric(zoom_level)) %>%
+    rast(.)
+  #create DEM
+  dem_dir <- paste0(site_dir, '/elev.tif')
+  writeRaster(dem, dem_dir, overwrite = T)
+  
+  
+  # Breach depressions (force water to move through ponds/lakes/etc...)
+wbt_breach_depressions_least_cost(
+  dem = dem_dir,
+  output = paste0(site_dir, "/breached.tif"),
+  dist = 9,
+  fill = TRUE)
+
+
+# Fill any remaining depressions
+wbt_fill_depressions_wang_and_liu(
+  dem = paste0(site_dir, "/breached.tif"),
+  output = paste0(site_dir, "/breachfill.tif")
+)
+
+#Get flow accumulation
+wbt_d8_flow_accumulation(input = paste0(site_dir, "/breachfill.tif"),
+                         output = paste0(site_dir, "/d8fa.tif"))
+#Get flow direction
+wbt_d8_pointer(dem = paste0(site_dir, "/breachfill.tif"),
+               output = paste0(site_dir, "/d8point.tif"))
+
+#Extract streams at 
+
+wbt_extract_streams(flow_accum = paste0(site_dir, "/d8fa.tif"),
+                    output = paste0(site_dir, "/raster_streams.tif"),
+                    threshold = 1000)
+
+#Snap our watershed flowliens to this point. 
+wbt_jenson_snap_pour_points(pour_pts = paste0(site_dir, "/location.shp"),
+                            streams = paste0(site_dir, "/raster_streams.tif"),
+                            output = paste0(site_dir, "/snapped_location.shp"),
+                            snap_dist = 200)
+
+wbt_watershed(d8_pntr = paste0(site_dir, "/d8point.tif"),
+              pour_pts = paste0(site_dir, "/snapped_location.shp"),
+              output = paste0(site_dir, "/watershed.tif"))
+
+watershed <- rast(paste0(site_dir, "/watershed.tif"))%>%
+  trim()
+
+mapview(watershed)+ mapview(points)
+}
+
+#create_watersheds("West_Branch","40.6724777,-105.8620178",  11)
+
+watersheds <- tibble(site_name = c("West_Branch", 
+                           "North_Branch", 
+                           "Glacier_Gorge" ), 
+                      lat_long = c("40.6724777,-105.8620178", 
+                               "40.74148,-105.8924542", 
+                               "40.310325,-105.6373891"), 
+                     zoom_level = c(10,10, 12))
+
+
+ pmap(watersheds, create_watersheds)
+
+
+```
+
 
 
 ## Generate, visualize, and extract two additional terrain metrics (not TWI)
 
 ```{r}
 
+
+ calc_mean_ruggedness <- function(site_name){
+   
+  watershed <- rast(paste0("data/sjs/",site_name,"/watershed.tif"))
+   
+  wbt_ruggedness_index(dem = paste0("data/sjs/",site_name,"/elev.tif"), 
+                               output = paste0("data/sjs/",site_name,"/ruggedness.tif"))
+  ruggedness_ws <- rast(paste0("data/sjs/",site_name,"/ruggedness.tif"))%>%
+  crop(.,watershed)%>%
+  mask(.,watershed)
+  
+  writeRaster(ruggedness_ws, paste0("data/sjs/",site_name,"/ruggedness_ws.tif"), overwrite = T)
+  
+ global(ruggedness_ws, fun = 'mean', na.rm = T)
+ 
+ }
+
+ calc_mean_aspect <- function(site_name){
+   
+  watershed <- rast(paste0("data/sjs/",site_name,"/watershed.tif"))
+   
+  wbt_aspect(dem = paste0("data/sjs/",site_name,"/elev.tif"), 
+                               output = paste0("data/sjs/",site_name,"/aspect.tif"))
+  
+  aspect_ws <- rast(paste0("data/sjs/",site_name,"/aspect.tif"))%>%
+  crop(.,watershed)%>%
+  mask(.,watershed)
+  
+  writeRaster(aspect_ws, paste0("data/sjs/",site_name,"/aspect_ws.tif"), overwrite = T)
+  
+ global(aspect_ws, fun = 'mean', na.rm = T)
+ 
+ }
+
+calc_mean_slope <- function(site_name){
+   
+  watershed <- rast(paste0("data/sjs/",site_name,"/watershed.tif"))
+   
+  wbt_slope(dem = paste0("data/sjs/",site_name,"/elev.tif"), 
+                               output = paste0("data/sjs/",site_name,"/slope.tif"))
+  slope_ws <- rast(paste0("data/sjs/",site_name,"/slope.tif"))%>%
+  crop(.,watershed)%>%
+  mask(.,watershed)
+  
+  writeRaster(slope_ws, paste0("data/sjs/",site_name,"/slope_ws.tif"), overwrite = T)
+  
+  global(slope_ws, fun = 'mean', na.rm = T)
+ 
+ }
+
+watershed_calcs <- watersheds %>%
+  mutate(ruggedness = map(site_name, calc_mean_ruggedness), 
+         slope = map(site_name, calc_mean_slope), 
+         aspect = map(site_name, calc_mean_aspect))%>%
+  unnest(cols = c(ruggedness))%>%
+  rename(mean_ruggedness = mean)%>%
+  unnest(cols = c(slope))%>%
+  rename(mean_slope = mean)%>%
+   unnest(cols = c(aspect))%>%
+  rename(mean_aspect = mean)
+
+view_ruggedness <- function(site_name){
+  ruggedness <- rast(paste0("data/sjs/",site_name,"/ruggedness_ws.tif"))
+  mapview(ruggedness)
+}
+view_slope <- function(site_name){
+  slope <- rast(paste0("data/sjs/",site_name,"/slope_ws.tif"))
+  mapview(slope)
+}
+view_aspect <- function(site_name){
+  aspect <- rast(paste0("data/sjs/",site_name,"/aspect_ws.tif"))
+  mapview(aspect)
+}
+map( watersheds$site_name, view_ruggedness)
+map( watersheds$site_name, view_slope)
+map( watersheds$site_name, view_aspect)
+
+
+
 ```
+
+## Aspect slope wind rose plot
+
+```{r}
+#using the slope and aspect rasters, create a plot with 360 degrees on the x-axis and the mean slope on the y-axis.
+#The plot should have a line for each site, and the lines should be colored by site.
+
+slope_aspect_plot <- function(site_name){
+  
+  watershed <- rast(paste0("data/sjs/",site_name,"/watershed.tif"))
+  aspect <- rast(paste0("data/sjs/",site_name,"/aspect_ws.tif"))
+  slope <- rast(paste0("data/sjs/",site_name,"/slope_ws.tif"))
+  
+  aspect <- as.matrix(aspect)
+  slope <- as.matrix(slope)
+  
+  aspect <- aspect[!is.na(aspect)]
+  slope <- slope[!is.na(slope)]
+  
+  slope_aspect <- tibble(aspect = aspect, slope = slope)%>%
+    mutate(aspect = round(aspect, digits = 0), 
+           aspect = case_when(aspect == 0 ~ 360, 
+                              TRUE ~ aspect))%>%
+    filter(aspect != -1)
+  
+  slope_aspect <- slope_aspect%>%
+    group_by(aspect)%>%
+    summarize(mean_slope = mean(slope))
+  
+  ggplot(slope_aspect, aes(x = aspect, y = mean_slope))+
+  # make this a polar plot with coord_polar with 0b beint at the top and 180 at the bottom
+    geom_line()+
+    coord_polar(start = 0, theta = "x")+
+    theme_minimal()+
+    labs(title = site_name, x = "Aspect (degrees)", y = "Mean Slope")+
+    # add a label at 180 degrees called "S"
+    geom_text(x = 180, y = 0, label = "N", size = 5)+
+    # add a label at 0 degrees called "N"
+    geom_text(x = 0, y = 0, label = "S", size = 5)+
+    # add a label at 90 degrees called "E"
+    geom_text(x = 90, y = 0, label = "W", size = 5)+
+    # add a label at 270 degrees called "W"
+    geom_text(x = 270, y = 0, label = "E", size = 5)
+}
+GG_sa <- slope_aspect_plot("Glacier_Gorge")+
+   theme(axis.title.x = element_blank())
+WB_sa <- slope_aspect_plot("West_Branch")+
+  #remove X axis label
+  theme(axis.title.x = element_blank())
+NB_sa <- slope_aspect_plot("North_Branch")
+
+
+ggpubr::ggarrange(GG_sa, WB_sa, NB_sa, nrow = 3)
+
+```
+
 
