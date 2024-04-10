@@ -114,6 +114,9 @@ tm_shape(hillshade)+
             palette = "-Greys", 
             legend.show = FALSE)+
   tm_scale_bar()
+
+mapview(hillshade) +
+  mapview(sheds)
 ```
 
 
@@ -138,8 +141,7 @@ wbt_breach_depressions_least_cost(
 # Fill any remaining depressions
 wbt_fill_depressions_wang_and_liu(
   dem = "data/breached.tif",
-  output = "data/breachfill.tif"
-)
+  output = "data/breachfill.tif")
 ```
 
 ## Flow Accumulation 
@@ -279,12 +281,177 @@ you may need to mess around with the Z level for get_elev_raster().
 
 ```{r}
 
+#Create a point near the stream using lat, long. 
+fr_sheds <- tibble(site = c("Le Giffre",
+                            "Le Bout du Monde"),
+                lat_long = c("46.0566073, 6.7806049",
+                             "46.1088149, 6.8626079")) %>%
+  separate(lat_long, into = c("lat", "long"), sep = ",") %>% 
+  st_as_sf(., coords = c("long", "lat"), crs = 4263) %>% # crs is still 4263
+  st_transform(2154) # search epsg code for France
+
+mapview(fr_sheds) # check map for point locations
+
+#Little code snippet to make the data folder if you don't have it. 
+if(!file.exists('data')){
+  dir.create('data')
+}
+
+# creating space to save shapefile that will be generated later
+st_write(fr_sheds, 'data/fr_pourpoints.shp', append = F) 
+
+# download raster from open data (using elevatr package - see CRAN for more information)
+fr_elev <- get_elev_raster(fr_sheds, z = 12) %>% 
+  rast()
+# type fr_elev into console to see data for the object
+# plot cool zoomable map of our raster and the points on it
+
+mapview(fr_elev) +
+  mapview(fr_sheds)
+
+# save as a DEM locally - place raster in data folder, which must be in gitignore
+# from Terra package
+writeRaster(fr_elev, "data/fr_elev.tif",
+            overwrite = TRUE) 
+# added overwrite = true bc I had to keep re-running this code and the error was stopping it
+
+# add hillshade - in hydroinformatics textbook, find hillshade example in watershed delineation chapter
+wbt_hillshade(dem = "data/fr_elev.tif",
+              output = "data/fr_hillshade.tif",
+              azimuth = 115)
+
+#Read in the hillshade
+fr_hillshade <- rast('data/fr_hillshade.tif')
+
+#Visualize
+tm_shape(fr_hillshade) +
+  tm_raster(style = "cont",
+            palette = "-Greys", 
+            legend.show = FALSE) +
+  tm_scale_bar()
+
+mapview(fr_hillshade) +
+  mapview(fr_sheds)
+
+
+# prep DEM for watershed delineation
+
+# white box tools to breach any local depressions to create a stream network
+wbt_breach_depressions_least_cost(
+  dem = "data/fr_elev.tif",
+  output = "data/fr_breached.tif",
+  dist = 9,
+  fill = TRUE)
+
+
+# Fill any remaining depressions
+wbt_fill_depressions_wang_and_liu(
+  dem = "data/fr_breached.tif",
+  output = "data/fr_breachedfill.tif")
+
+# Flow accumulation tools
+wbt_d8_flow_accumulation(input = "data/fr_breachedfill.tif",
+                         output = "data/fr_d8fa.tif")
+
+# Get flow direction - D8 method sends flow to most downslope neighboring square 
+# be there are 8 surrounding squares
+wbt_d8_pointer(dem = "data/fr_breachedfill.tif",
+               output = "data/fr_d8point.tif")
+
+# read in the data
+fr_fa <- rast("data/fr_d8fa.tif") %>%
+  log10()
+
+#visualize
+mapview(fr_fa) + 
+  mapview(fr_sheds)
+
+# Extract streams at 1km2 
+# my raster has a resolution of 13x13m, so 1km2 is ~ 6000 cells!
+wbt_extract_streams(flow_accum = "data/fr_d8fa.tif",
+                    output = "data/raster_frstreams.tif",
+                    threshold = 6000) # this is the number of cells
+
+#Snap our watershed flowlines to this point. 
+wbt_jenson_snap_pour_points(pour_pts = "data/fr_pourpoints.shp",
+                            streams = "data/raster_frstreams.tif",
+                            output = "data/fr_snappedpp.shp",
+                            snap_dist = 200)
+
+# Read in and check the snap. 
+fr_snap_pour <- st_read("data/fr_snappedpp.shp")
+
+mapview(fr_fa) + 
+  mapview(fr_snap_pour)
+
+# watershed delienation time!
+wbt_watershed(d8_pntr = "data/fr_d8point.tif",
+              pour_pts = "data/fr_snappedpp.shp",
+              output = "data/griffe.tif")
+
+griffe_shed <- rast("data/griffe.tif")
+
+mapview(griffe_shed) +
+  mapview(fr_sheds)
 ```
 
 
 ## Generate, visualize, and extract two additional terrain metrics (not TWI)
 
 ```{r}
+# Find ridges tool
+# I wanted to see how this tool works bc at my job I had to manually 
+# mark ridges in 2D model domains as breaklines and I would love if it just worked
 
+wbt_find_ridges(dem = "data/fr_elev.tif",
+                output = "data/fr_ridges.tif")
+
+ridges <- rast("data/fr_ridges.tif")
+
+mapview(fr_hillshade) +
+  mapview(ridges) +
+  mapview(fr_sheds)
+
+# this tool did not work as well as I wish it did, but is a good start.
+```
+
+
+
+```{r}
+# Terrain ruggedness index - 
+# this factor was not very interesting, but straightforward to generate
+
+wbt_ruggedness_index(dem = "data/fr_elev.tif",
+                     output = "data/fr_ruggedness.tif")
+
+ruggedness <- rast("data/fr_ruggedness.tif")
+
+mapview(ruggedness) +
+  mapview(fr_sheds)
+```
+
+
+
+I have not been able to make the following code work, I'm getting an error saying it panicked
+```{r}
+# Sediment transport index! I chose this because sediment transfer is not considered
+# in effective FEMA floodplain mapping, like i did at work
+# so I never learned to model sediment transfer
+
+# this function requires inputs of two other rasters:
+# sca - specific contributing area file, which is actually just flow accumulation raster
+# slope raster file
+
+wbt_slope(dem = 'data/fr_elev.tif',
+          output = 'data/fr_slope.tif',
+          units = 'degrees')
+
+wbt_sediment_transport_index(sca = "data/fr_fa.tif",
+                             slope = "data/fr_slope.tif",
+                             output = "data/fr_sediment.tif")
+
+sed <- rast("data/fr_sediment.tif")
+
+mapview(sed)
 ```
 
