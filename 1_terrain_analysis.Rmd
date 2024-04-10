@@ -210,7 +210,8 @@ wbt_watershed(d8_pntr = "data/d8point.tif",
               pour_pts = "data/snappedpp.shp",
               output = "data/south_fork.tif")
 
-south_shed <- rast('data/south_fork.tif')
+south_shed <- rast('data/south_fork.tif') %>%
+  trim()
 
 mapview(south_shed) + 
 mapview(sheds)
@@ -240,7 +241,7 @@ wbt_wetness_index(sca = 'data/d8fa.tif',
                   slope = 'data/slope.tif',
                   output = 'data/twi.tif')
 
-twi <- rast('data/twi.tif')
+twi <- rast('data/twi.tif') 
 
 mapview(twi)
 
@@ -256,7 +257,7 @@ mapview(twi)
 twi_south <- crop(twi, south_shed) 
 
 
-twi_south_mask <- mask(twi, south_shed)
+twi_south_mask <- mask(twi_south, south_shed)
 
 
 mapview(twi_south_mask)
@@ -278,13 +279,270 @@ you may need to mess around with the Z level for get_elev_raster().
 
 
 ```{r}
+#Selected Lat/Long, Ralston Creek above Ralston Reservoir 39.8497304,-105.290618,19.91
+
+
+#Create a point near the stream using lat, long. 
+Ralston_sheds <- tibble(site = c('Ralston'),
+                long = c(39.850896),
+                lat = c(-105.290618)) %>%
+  st_as_sf(., coords = c('lat','long'), crs = 4263) %>%
+  st_transform(2163)
+
+#Visualize the points
+mapview(Ralston_sheds)
+
+st_write(Ralston_sheds, 'data/Rpourpoints.shp', append = F)
+```
+
+## Get elevation data from around that area. 
+
+```{r}
+
+# Use elevatr to download data and convert to terra object
+Ralston_elev <- get_elev_raster(Ralston_sheds, z =7) %>%
+  rast(.)
+
+# Various ways to plot
+
+mapview(Ralston_elev) + 
+  mapview(Ralston_sheds)
+```
+
+### Save a local DEM Version
+
+```{r}
+#Save local version for whitebox to use
+writeRaster(Ralston_elev, 'data/Ralstonelev.tif', overwrite = T)
+```
+
+
+
+## Get hillshade for display purposes
+
+```{r}
+
+#Get a shillshade map from wbt
+wbt_hillshade(dem = "data/Ralstonelev.tif",
+              output = "data/Ralston_hillshade.tif",
+              azimuth = 115)
+
+#Read in the hillshade
+Ralston_hillshade <- rast('data/Ralston_hillshade.tif')
+
+#Visualize
+tm_shape(Ralston_hillshade)+
+  tm_raster(style = "cont",
+            palette = "-Greys", 
+            legend.show = FALSE)+
+  tm_scale_bar()
+```
+
+
+## Hydrologically condition DEM
+
+JP Gannon does a great job on his [hydroinformatics website](https://vt-hydroinformatics.github.io/Quarto_Book/14-Geospatial-Raster-Hydro.html) explaining why we need to hydrologically condition a DEM before we can conduct
+watershed analyses. Basically, DEMs aren't perfect and they can have artifacts 
+in them that make it so that water doesn't properly flow downhill. To force water
+to move the way we think it should through the landscape we can "condition" these
+DEMs using the functions below. 
+
+```{r}
+
+# Breach depressions (force water to move through ponds/lakes/etc...)
+wbt_breach_depressions_least_cost(
+  dem = "data/Ralstonelev.tif",
+  output = "data/Ralstonbreached.tif",
+  dist = 9,
+  fill = TRUE)
+
+
+# Fill any remaining depressions
+wbt_fill_depressions_wang_and_liu(
+  dem = "data/Ralstonbreached.tif",
+  output = "data/Ralstonbreachfill.tif"
+)
+```
+
+## Flow Accumulation 
+
+Flow accumulation is the key function we use to estimate how much watershed area
+is draining to a specific point anywhere in the river network. Here we use the D8
+flow algorithm, which makes it so 100% of the water is routed to nearby cells. 
+ESRI has a nice article visualizing what this algorithm is [doing](https://pro.arcgis.com/en/pro-app/latest/tool-reference/raster-analysis/flow-direction.htm)
+
+```{r}
+
+#Get flow accumulation
+wbt_d8_flow_accumulation(input = "data/Ralstonbreachfill.tif",
+                         output = "data/Ralstond8fa.tif")
+#Get flow direction
+wbt_d8_pointer(dem ='data/Ralstonbreachfill.tif',
+               output = 'data/Ralstond8point.tif')
+
+# read in the data
+Ralston_fa <- rast('data/Ralstond8fa.tif') %>%
+  log10(.)
+
+#visualize
+mapview(Ralston_fa) + 
+  mapview(Ralston_sheds)
+```
+
+
+## Extract streams with arbitrary 300 cell threshold 
+
+In order to make sure that our watershed outlet point, which we arbitrarily and
+manually extracted lats and longs for, we need to first extract a stream network.
+We are picking a 300-cell flow accumulation threshold for our 'stream initiation.' 
+Because our starting raster is a ~58X58m cell size 300 cells roughly equals 1 km2.
+This means, we are saying that once a stream has more than 1 km2 of watershed area draining
+to that point in the stream, we think that it will have a functioning stream channel.
+You can conduct entire studies to get this threshold right, so this is arbitrary here. 
+
+```{r}
+
+#Extract streams at 1km2 
+wbt_extract_streams(flow_accum = "data/Ralstond8fa.tif",
+                    output = "data/RalstonRaster_streams.tif",
+                    threshold = 300)
+
+#Snap our watershed flowliens to this point. 
+wbt_jenson_snap_pour_points(pour_pts = "data/Rpourpoints.shp",
+                            streams = "data/RalstonRaster_streams.tif",
+                            output = "data/RalstonSnappedpp.shp",
+                            snap_dist = 200)
+
+# Read in and check the snap. 
+Ralston_snap_pour <- st_read('data/RalstonSnappedpp.shp')
+mapview(Ralston_fa) + 
+  mapview(Ralston_snap_pour)
 
 ```
 
 
+## Delineate watershed
+
+
+Finally after all that! We can delineate our watershed
+
+
+```{r}
+wbt_watershed(d8_pntr = "data/Ralstond8point.tif",
+              pour_pts = "data/RalstonSnappedpp.shp",
+              output = "data/Ralston.tif")
+
+Ralston_shed <- rast('data/Ralston.tif') %>% 
+  trim()
+
+mapview(Ralston_shed)+
+mapview(Ralston_sheds)
+
+```
+
+## Extract a terrain metric about this watershed
+
+### Generate terrain metric
+
+Delineating a watershed allows us to now get watershed terrain metrics for that 
+watershed. Whitebox tools has dozens of terrain tools you can use
+[See More in the Geomorph Section](https://www.whiteboxgeo.com/manual/wbt_book/intro.html).
+Here we will generate and extract one critical variable. Topographic Wetness,
+which indicates areas in a watershed (or a watershed average) wetness. High values
+indicate areas that can be marshy/wetlandy and generally wet. Low values (like ridge tops) will
+be drier parts of the landscape. 
+
+```{r}
+#First we need slope
+wbt_slope(dem = 'data/Ralstonelev.tif',
+          output = 'data/RalstonSlope.tif',
+          units = 'degrees')
+
+# Now we can generate twi
+wbt_wetness_index(sca = 'data/Ralstond8fa.tif',
+                  slope = 'data/RalstonSlope.tif',
+                  output = 'data/Ralstontwi.tif')
+
+Ralston_twi <- rast('data/Ralstontwi.tif')
+
+mapview(Ralston_twi)
+
+
+```
+
+### Crop to watershed and extract average value
+
+
+```{r}
+# Crop TWI to Ralston_shed area
+
+twi_Ralston <- crop(Ralston_twi, Ralston_shed) 
+
+
+Ralston_twi_mask <- mask(twi_Ralston, Ralston_shed)
+
+
+mapview(Ralston_twi_mask)
+
+
+global(Ralston_twi_mask, fun = 'mean', na.rm = T)
+```
 ## Generate, visualize, and extract two additional terrain metrics (not TWI)
 
 ```{r}
 
+##Getting Aspect
+
+aspect <- wbt_aspect(dem = "data/Ralstonelev.tif", 
+                             output = "data/Ralston_aspect.tif", 
+                             zfactor=NULL
+                             )
+
+Ralston_aspect <- rast('data/Ralston_aspect.tif') %>% 
+  trim()
+
+
+Cropped_Ralston_aspect <- crop(Ralston_aspect, Ralston_shed) 
+
+
+Ralston_aspect_mask <- mask(Cropped_Ralston_aspect, Ralston_shed)
+
+
+mapview(Ralston_aspect_mask)
+
 ```
+
+
+```{r}
+
+##Getting Downslope Flowpath Length
+
+wbt_downslope_flowpath_length(
+    d8_pntr = "data/Ralstond8point.tif", 
+    output = "data/RalstonDSflow.tif"
+)
+
+
+
+ Ralston_downslope_flow <- rast('data/RalstonDSflow.tif') %>% 
+   trim()
+ 
+Cropped_Ralston_DSFlow <- crop(Ralston_downslope_flow, Ralston_shed) 
+
+
+Ralston_DSF_mask <- mask(Cropped_Ralston_DSFlow, Ralston_shed)
+ 
+ 
+ 
+ 
+ 
+ 
+ mapview(Ralston_DSF_mask)
+
+
+```
+
+
+
+
 
