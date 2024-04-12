@@ -140,6 +140,8 @@ wbt_fill_depressions_wang_and_liu(
   dem = "data/breached.tif",
   output = "data/breachfill.tif"
 )
+
+
 ```
 
 ## Flow Accumulation 
@@ -278,13 +280,200 @@ you may need to mess around with the Z level for get_elev_raster().
 
 
 ```{r}
+Spotted_bear_river<- tibble(site="spotted_bear",
+                            long=47.9288647,
+                            lat=-113.5205471)%>%
+  st_as_sf(., coords = c('lat','long'), crs = 4263) %>%
+  st_transform(2163)
 
+#Visualize the points
+mapview(Spotted_bear_river)
+
+#Little code snippet to make the data folder if you don't have it. 
+if(!file.exists('data')){
+  dir.create('data')
+}
+
+st_write(Spotted_bear_river, 'data/sb_pourpoints.shp', append = F)
+```
+
+```{r}
+# Use elevatr to download data and convert to terra object
+sb_elev <- get_elev_raster(Spotted_bear_river, z = 10) %>%
+  rast(.)
+
+# Various ways to plot
+
+mapview(sb_elev) + 
+  mapview(Spotted_bear_river)
+```
+
+```{r}
+#Save local version for whitebox to use
+writeRaster(sb_elev, 'data/sb_elev.tif', overwrite = T)
 ```
 
 
-## Generate, visualize, and extract two additional terrain metrics (not TWI)
+## Get hillshade for display purposes
 
 ```{r}
 
+#Get a shillshade map from wbt
+wbt_hillshade(dem = "data/sb_elev.tif",
+              output = "data/sb_hillshade.tif",
+              azimuth = 115)
+
+#Read in the hillshade
+sb_hillshade <- rast('data/sb_hillshade.tif')
+
+#Visualize
+tm_shape(sb_hillshade)+
+  tm_raster(style = "cont",
+            palette = "-Greys", 
+            legend.show = FALSE)+
+  tm_scale_bar()
 ```
 
+```{r}
+
+# Breach depressions (force water to move through ponds/lakes/etc...)
+wbt_breach_depressions_least_cost(
+  dem = "data/sb_elev.tif",
+  output = "data/sb_breached.tif",
+  dist = 9,
+  fill = TRUE)
+
+
+# Fill any remaining depressions
+wbt_fill_depressions_wang_and_liu(
+  dem = "data/sb_breached.tif",
+  output = "data/sb_breachfill.tif"
+)
+
+```
+
+```{r}
+
+#Get flow accumulation
+wbt_d8_flow_accumulation(input = "data/sb_breachfill.tif",
+                         output = "data/sb_d8fa.tif")
+#Get flow direction
+wbt_d8_pointer(dem ='data/sb_breachfill.tif',
+               output = 'data/sb_d8point.tif')
+
+# read in the data
+sb_fa <- rast('data/sb_d8fa.tif') %>%
+  log10(.)
+
+#visualize
+mapview(sb_fa) + 
+  mapview(Spotted_bear_river)
+```
+
+```{r}
+#Extract streams at 1km2 
+wbt_extract_streams(flow_accum = "data/sb_d8fa.tif",
+                    output = "data/sb_raster_streams.tif",
+                    threshold = 300)
+
+#Snap our watershed flowliens to this point. 
+wbt_jenson_snap_pour_points(pour_pts = "data/sb_pourpoints.shp",
+                            streams = "data/sb_raster_streams.tif",
+                            output = "data/sb_snappedpp.shp",
+                            snap_dist = 500)
+
+# Read in and check the snap. 
+sb_snap_pour <- st_read('data/sb_snappedpp.shp')
+
+
+mapview(sb_fa) + 
+  mapview(sb_snap_pour)
+```
+
+
+```{r}
+wbt_watershed(d8_pntr = "data/sb_d8point.tif",
+              pour_pts = "data/sb_snappedpp.shp",
+              output = "data/sb_south_fork.tif")
+
+sb_boundary <- rast('data/sb_south_fork.tif') %>% 
+  trim()
+
+mapview(sb_boundary) + 
+mapview(Spotted_bear_river)
+```
+
+## Generate, visualize, and extract two additional terrain metrics (not TWI)
+
+###Slope
+
+```{r}
+wbt_slope(
+    sb_elev, 
+    output= "data/sb_slope.tif", 
+    zfactor=NULL, 
+    units="degrees")
+
+```
+
+
+```{r}
+
+wbt_sediment_transport_index(
+    sca='data/sb_south_fork.tif', 
+    slope="data/sb_slope.tif", 
+    output="data/sb_sedimenttransport.tif", 
+    sca_exponent=0.4, 
+    slope_exponent=1.3
+)
+
+st <- rast("data/sb_sedimenttransport.tif") 
+
+mapview(st)
+
+```
+
+### Geomorphs
+```{r}
+
+
+wbt_geomorphons(
+    dem= 'data/sb_elev.tif', 
+    output="data/sb_geomorphons.tif", 
+    search=50, 
+    threshold=1.0, 
+    fdist=5, 
+    skip=0, 
+    forms=TRUE, 
+    residuals=FALSE
+)
+
+geomorphons <- rast("data/sb_geomorphons.tif") 
+
+geomorphons_crop<- crop(geomorphons, sb_boundary)
+
+geomorphons_mask<- mask(geomorphons_crop, sb_boundary)
+
+Geomorph_type<- tibble(value=c(1:10, NA),
+                       Type=c("Flat", "Peak (Summit)", "Ridge", "Shoulder",
+                              "Spur (Convex)", "Slope", "Hollow (Concave)",
+                              "Footslope", "Valleuy", "Pit (Depression)", NA))
+
+plot(geomorphons_mask)
+```
+
+```{r}
+
+# Plot the masked geomorphons raster
+# Could not get the scale to map properly
+terra:: plot(geomorphons_mask, col = terrain.colors(10), legend = FALSE, main = "Geomorphons Plot")
+
+# Define legend labels
+legend_labels <- c("Flat", "Peak (Summit)", "Ridge", "Shoulder", "Spur (Convex)",
+                   "Slope", "Hollow (Concave)", "Footslope", "Valleuy", "Pit (Depression)")
+
+# Add legend with custom coordinates (slightly to the right)
+legend("bottomleft", legend = legend_labels, fill = terrain.colors(10), col = terrain.colors(10), bty = "n", x.intersp = 10.1, xjust = 11.1, cex = 0.5)
+
+
+```
