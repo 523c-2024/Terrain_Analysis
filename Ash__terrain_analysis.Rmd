@@ -275,7 +275,7 @@ Using the above code as a starter, generate your own watershed. Try to only
 pick a watershed that is not too large in size (~ < 1000km2). Remember
 you may need to mess around with the Z level for get_elev_raster(). 
 
-
+Teton water shed
 
 ```{r}
 
@@ -359,12 +359,7 @@ wbt_fill_depressions_wang_and_liu(
 )
 ```
 
-## Flow Accumulation 
 
-Flow accumulation is the key function we use to estimate how much watershed area
-is draining to a specific point anywhere in the river network. Here we use the D8
-flow algorithm, which makes it so 100% of the water is routed to nearby cells. 
-ESRI has a nice article visualizing what this algorithm is [doing](https://pro.arcgis.com/en/pro-app/latest/tool-reference/raster-analysis/flow-direction.htm)
 
 ```{r}
 
@@ -396,15 +391,7 @@ print(cell_size)
 writeRaster(elev_teton, 'data/elevteton.tif', overwrite = T)
 
 ```
-## Extract streams with arbitrary 300 cell threshold 
 
-In order to make sure that our watershed outlet point, which we arbitrarily and
-manually extracted lats and longs for, we need to first extract a stream network.
-We are picking a 300-cell flow accumulation threshold for our 'stream initiation.' 
-Because our starting raster is a ~58X58m cell size 300 cells roughly equals 1 km2.
-This means, we are saying that once a stream has more than 1 km2 of watershed area draining
-to that point in the stream, we think that it will have a functioning stream channel.
-You can conduct entire studies to get this threshold right, so this is arbitrary here. 
 
 ```{r}
 
@@ -431,8 +418,6 @@ wbt_jenson_snap_pour_points(pour_pts = "data/pourpoints_teton.shp",
 
 ## Delineate watershed
 
-
-Finally after all that! We can delineate our watershed
 
 
 ```{r}
