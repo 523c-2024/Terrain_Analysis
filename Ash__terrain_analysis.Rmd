@@ -17,7 +17,7 @@ library(tmap)
 
 
 # Run first time you install whitebox
-whitebox::install_whitebox()
+#whitebox::install_whitebox()
 ```
 
 
